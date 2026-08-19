@@ -7,6 +7,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <style>
   :root{
     --paper:#EDEFE3;
@@ -28,8 +31,9 @@
     padding:32px 20px 80px;
   }
   .wrap{max-width:920px;margin:0 auto;}
+  .hidden{display:none !important;}
 
-  header{margin-bottom:28px;}
+  header{margin-bottom:28px;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;}
   .eyebrow{
     font-family:'IBM Plex Mono',monospace;
     font-size:12px;
@@ -46,6 +50,17 @@
     line-height:1.05;
   }
   .sub{color:var(--ink-soft);font-size:15px;margin:0;}
+
+  .userbar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-family:'IBM Plex Mono',monospace;
+    font-size:12px;
+    color:var(--ink-soft);
+    white-space:nowrap;
+  }
+  .userbar button{padding:7px 12px;font-size:12px;}
 
   .config{
     display:flex;
@@ -89,6 +104,7 @@
     border:1px solid var(--border);
   }
   button:hover{opacity:.88;}
+  button:disabled{opacity:.5;cursor:not-allowed;}
   button:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
 
   .ledger{
@@ -188,15 +204,83 @@
   }
   .msg{font-size:12px;color:var(--ink-soft);font-family:'IBM Plex Mono',monospace;}
   .loading{color:var(--ink-soft);font-size:14px;padding:40px 0;text-align:center;}
+
+  /* Tela de login */
+  .login-wrap{
+    max-width:380px;
+    margin:70px auto;
+    border:1px solid var(--border);
+    background:var(--card-bg);
+    border-radius:6px;
+    padding:32px 28px;
+  }
+  .login-wrap h1{font-size:26px;margin-bottom:6px;}
+  .login-wrap .sub{margin-bottom:22px;}
+  .login-field{display:flex;flex-direction:column;gap:5px;margin-bottom:14px;}
+  .login-field label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-soft);}
+  .login-field input{
+    font-family:'IBM Plex Sans',sans-serif;
+    font-size:15px;
+    padding:10px 12px;
+    border:1px solid var(--border);
+    border-radius:3px;
+    background:var(--paper);
+    color:var(--ink);
+    width:100%;
+  }
+  .login-field input:focus{outline:2px solid var(--gold);outline-offset:1px;}
+  .login-actions{display:flex;flex-direction:column;gap:10px;margin-top:6px;}
+  .login-error{
+    font-size:13px;
+    color:var(--stamp);
+    margin:-4px 0 12px;
+    min-height:16px;
+  }
+  .login-link{
+    font-size:12px;
+    color:var(--ink-soft);
+    background:none;
+    border:none;
+    padding:0;
+    text-decoration:underline;
+    cursor:pointer;
+    align-self:flex-start;
+  }
 </style>
 </head>
 <body>
-<div class="wrap">
+
+<div id="loginScreen" class="login-wrap">
+  <div class="eyebrow">Caderneta de metas</div>
+  <h1>Entrar</h1>
+  <p class="sub">Use o email e a senha que a sua equipe recebeu.</p>
+  <div class="login-field">
+    <label for="loginEmail">Email</label>
+    <input id="loginEmail" type="email" autocomplete="username">
+  </div>
+  <div class="login-field">
+    <label for="loginPassword">Senha</label>
+    <input id="loginPassword" type="password" autocomplete="current-password">
+  </div>
+  <div class="login-error" id="loginError"></div>
+  <div class="login-actions">
+    <button id="loginBtn">Entrar</button>
+    <button id="forgotBtn" class="login-link">Esqueci minha senha</button>
+  </div>
+</div>
+
+<div class="wrap hidden" id="appArea">
 
   <header>
-    <div class="eyebrow">Caderneta de metas</div>
-    <h1 id="titulo">Desafio dos R$ 150.000</h1>
-    <p class="sub">Marque um valor sempre que conseguir guardar aquela quantia. A soma de todos fecha na sua meta.</p>
+    <div>
+      <div class="eyebrow">Caderneta de metas</div>
+      <h1 id="titulo">Desafio dos R$ 150.000</h1>
+      <p class="sub">Marque um valor sempre que conseguir guardar aquela quantia. A soma de todos fecha na sua meta.</p>
+    </div>
+    <div class="userbar">
+      <span id="userEmail"></span>
+      <button id="logoutBtn" class="secondary">Sair</button>
+    </div>
   </header>
 
   <div class="config">
@@ -237,19 +321,97 @@
   <div id="gridArea"><div class="loading">Carregando sua tabela…</div></div>
 
   <footer>
-    <span class="msg" id="saveStatus">Progresso salvo automaticamente neste navegador.</span>
+    <span class="msg" id="saveStatus">Progresso salvo na nuvem.</span>
   </footer>
 
 </div>
 
 <script>
-const STORAGE_KEY = 'desafio-economia-state';
+// ---------- Firebase ----------
+const firebaseConfig = {
+  apiKey: "AIzaSyDaNG_ZPyvdtT9j36CS8qliJETZnxcviJc",
+  authDomain: "tabelinha-de-economias.firebaseapp.com",
+  projectId: "tabelinha-de-economias",
+  storageBucket: "tabelinha-de-economias.firebasestorage.app",
+  messagingSenderId: "612631067266",
+  appId: "1:612631067266:web:b363a73f8dc40535c4529b"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+let currentUid = null;
 let state = null; // { goal, count, values:[...], checked:[bool...] }
 
 function fmtBRL(n){
   return 'R$ ' + n.toLocaleString('pt-BR', {minimumFractionDigits: n % 1 === 0 ? 0 : 2, maximumFractionDigits: 2});
 }
 
+// ---------- Login ----------
+const loginScreen = document.getElementById('loginScreen');
+const appArea = document.getElementById('appArea');
+const loginError = document.getElementById('loginError');
+
+document.getElementById('loginBtn').addEventListener('click', () => {
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  loginError.textContent = '';
+  if(!email || !password){
+    loginError.textContent = 'Preencha email e senha.';
+    return;
+  }
+  auth.signInWithEmailAndPassword(email, password).catch(err => {
+    loginError.textContent = traduzErroLogin(err);
+  });
+});
+
+document.getElementById('forgotBtn').addEventListener('click', () => {
+  const email = document.getElementById('loginEmail').value.trim();
+  if(!email){
+    loginError.textContent = 'Digite seu email acima primeiro, depois clique aqui de novo.';
+    return;
+  }
+  auth.sendPasswordResetEmail(email).then(() => {
+    loginError.style.color = 'var(--ink-soft)';
+    loginError.textContent = 'Enviamos um link de redefinição para o seu email.';
+  }).catch(err => {
+    loginError.style.color = 'var(--stamp)';
+    loginError.textContent = traduzErroLogin(err);
+  });
+});
+
+document.getElementById('logoutBtn').addEventListener('click', () => {
+  auth.signOut();
+});
+
+function traduzErroLogin(err){
+  const code = err && err.code;
+  if(code === 'auth/invalid-email') return 'Email inválido.';
+  if(code === 'auth/user-not-found' || code === 'auth/invalid-credential') return 'Email ou senha incorretos.';
+  if(code === 'auth/wrong-password') return 'Email ou senha incorretos.';
+  if(code === 'auth/too-many-requests') return 'Muitas tentativas. Tente de novo em alguns minutos.';
+  return 'Não foi possível entrar. Tente novamente.';
+}
+
+auth.onAuthStateChanged(user => {
+  if(user){
+    currentUid = user.uid;
+    loginScreen.classList.add('hidden');
+    appArea.classList.remove('hidden');
+    document.getElementById('userEmail').textContent = user.email;
+    initApp();
+  } else {
+    currentUid = null;
+    state = null;
+    appArea.classList.add('hidden');
+    loginScreen.classList.remove('hidden');
+    document.getElementById('loginEmail').value = '';
+    document.getElementById('loginPassword').value = '';
+    loginError.textContent = '';
+  }
+});
+
+// ---------- Geração da tabela ----------
 // Gera N valores positivos, arredondados em múltiplos de 5, que somam exatamente `goal`.
 function generateValues(goal, n){
   const cuts = [0, goal];
@@ -261,13 +423,10 @@ function generateValues(goal, n){
   for(let i=1;i<cuts.length;i++){
     raw.push(cuts[i]-cuts[i-1]);
   }
-  // arredonda para múltiplos de 5, garante mínimo de 5
   let rounded = raw.map(v => Math.max(5, Math.round(v/5)*5));
   let diff = goal - rounded.reduce((a,b)=>a+b,0);
-  // ajusta a diferença de arredondamento na maior célula
   let idxMax = rounded.indexOf(Math.max(...rounded));
   rounded[idxMax] = Math.max(5, rounded[idxMax] + diff);
-  // embaralha a ordem de exibição
   for(let i=rounded.length-1;i>0;i--){
     const j = Math.floor(Math.random()*(i+1));
     [rounded[i],rounded[j]]=[rounded[j],rounded[i]];
@@ -283,16 +442,7 @@ function newState(goal, count){
   };
 }
 
-function loadState(){
-  try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw) return JSON.parse(raw);
-  }catch(e){
-    console.log('Nada salvo ainda ou erro ao ler:', e);
-  }
-  return null;
-}
-
+// ---------- Persistência (Firestore, por usuário) ----------
 let saveTimer = null;
 
 function setSaveStatus(text){
@@ -300,21 +450,33 @@ function setSaveStatus(text){
   if(el) el.textContent = text;
 }
 
-function saveNow(){
+async function loadState(){
   try{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    setSaveStatus('Progresso salvo neste navegador.');
+    const doc = await db.collection('usuarios').doc(currentUid).get();
+    if(doc.exists){
+      return doc.data();
+    }
+  }catch(e){
+    console.log('Nada salvo ainda ou erro ao ler:', e);
+  }
+  return null;
+}
+
+async function saveNow(){
+  if(!currentUid) return;
+  try{
+    await db.collection('usuarios').doc(currentUid).set(state);
+    setSaveStatus('Progresso salvo na nuvem.');
   }catch(e){
     console.error('Falha ao salvar progresso:', e);
-    setSaveStatus('Não foi possível salvar. O navegador pode estar com o armazenamento cheio ou bloqueado.');
+    setSaveStatus('Não foi possível salvar agora. Verifique sua internet.');
   }
 }
 
-// Agrupa cliques rápidos em uma única gravação.
 function saveState(){
   if(saveTimer) clearTimeout(saveTimer);
   setSaveStatus('Salvando…');
-  saveTimer = setTimeout(saveNow, 300);
+  saveTimer = setTimeout(saveNow, 500);
 }
 
 function renderGrid(){
@@ -356,21 +518,22 @@ function updateSummary(){
   document.getElementById('barFill').style.width = pct + '%';
 }
 
-function init(){
-  const saved = loadState();
+async function initApp(){
+  document.getElementById('gridArea').innerHTML = '<div class="loading">Carregando sua tabela…</div>';
+  const saved = await loadState();
   if(saved && saved.values && saved.values.length){
     state = saved;
     document.getElementById('goalInput').value = state.goal;
     document.getElementById('countInput').value = state.count;
   } else {
     state = newState(150000, 150);
-    saveNow();
+    await saveNow();
   }
   renderGrid();
   updateSummary();
 }
 
-document.getElementById('regenBtn').addEventListener('click', () => {
+document.getElementById('regenBtn').addEventListener('click', async () => {
   const goal = Math.max(100, Number(document.getElementById('goalInput').value) || 150000);
   const count = Math.min(300, Math.max(10, Number(document.getElementById('countInput').value) || 150));
   if(state && state.checked.some(Boolean)){
@@ -378,22 +541,20 @@ document.getElementById('regenBtn').addEventListener('click', () => {
     if(!ok) return;
   }
   state = newState(goal, count);
-  saveNow();
+  await saveNow();
   renderGrid();
   updateSummary();
 });
 
-document.getElementById('resetBtn').addEventListener('click', () => {
+document.getElementById('resetBtn').addEventListener('click', async () => {
   if(!state) return;
   const ok = confirm('Isso vai desmarcar todas as células (os valores continuam os mesmos). Continuar?');
   if(!ok) return;
   state.checked = new Array(state.count).fill(false);
-  saveNow();
+  await saveNow();
   renderGrid();
   updateSummary();
 });
-
-init();
 </script>
 </body>
 </html>
