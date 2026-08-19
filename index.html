@@ -252,8 +252,8 @@
 
 <div id="loginScreen" class="login-wrap">
   <div class="eyebrow">Caderneta de metas</div>
-  <h1>Entrar</h1>
-  <p class="sub">Use o email e a senha que a sua equipe recebeu.</p>
+  <h1 id="loginTitle">Entrar</h1>
+  <p class="sub" id="loginSub">Use seu email e senha, ou crie uma conta se ainda não tiver.</p>
   <div class="login-field">
     <label for="loginEmail">Email</label>
     <input id="loginEmail" type="email" autocomplete="username">
@@ -262,9 +262,15 @@
     <label for="loginPassword">Senha</label>
     <input id="loginPassword" type="password" autocomplete="current-password">
   </div>
+  <div class="login-field hidden" id="confirmPasswordField">
+    <label for="confirmPassword">Confirme a senha</label>
+    <input id="confirmPassword" type="password" autocomplete="new-password">
+  </div>
   <div class="login-error" id="loginError"></div>
   <div class="login-actions">
     <button id="loginBtn">Entrar</button>
+    <button id="signupBtn" class="hidden">Criar conta</button>
+    <button id="toggleModeBtn" class="login-link">Ainda não tenho conta — criar uma</button>
     <button id="forgotBtn" class="login-link">Esqueci minha senha</button>
   </div>
 </div>
@@ -347,12 +353,42 @@ function fmtBRL(n){
   return 'R$ ' + n.toLocaleString('pt-BR', {minimumFractionDigits: n % 1 === 0 ? 0 : 2, maximumFractionDigits: 2});
 }
 
-// ---------- Login ----------
+// ---------- Login / Cadastro ----------
 const loginScreen = document.getElementById('loginScreen');
 const appArea = document.getElementById('appArea');
 const loginError = document.getElementById('loginError');
+const loginTitle = document.getElementById('loginTitle');
+const loginSub = document.getElementById('loginSub');
+const loginBtn = document.getElementById('loginBtn');
+const signupBtn = document.getElementById('signupBtn');
+const toggleModeBtn = document.getElementById('toggleModeBtn');
+const confirmPasswordField = document.getElementById('confirmPasswordField');
 
-document.getElementById('loginBtn').addEventListener('click', () => {
+let signupMode = false;
+
+function setSignupMode(on){
+  signupMode = on;
+  loginError.textContent = '';
+  if(on){
+    loginTitle.textContent = 'Criar conta';
+    loginSub.textContent = 'Crie seu login para acessar sua própria tabela de metas.';
+    loginBtn.classList.add('hidden');
+    signupBtn.classList.remove('hidden');
+    confirmPasswordField.classList.remove('hidden');
+    toggleModeBtn.textContent = 'Já tenho conta — entrar';
+  } else {
+    loginTitle.textContent = 'Entrar';
+    loginSub.textContent = 'Use seu email e senha, ou crie uma conta se ainda não tiver.';
+    loginBtn.classList.remove('hidden');
+    signupBtn.classList.add('hidden');
+    confirmPasswordField.classList.add('hidden');
+    toggleModeBtn.textContent = 'Ainda não tenho conta — criar uma';
+  }
+}
+
+toggleModeBtn.addEventListener('click', () => setSignupMode(!signupMode));
+
+loginBtn.addEventListener('click', () => {
   const email = document.getElementById('loginEmail').value.trim();
   const password = document.getElementById('loginPassword').value;
   loginError.textContent = '';
@@ -361,6 +397,28 @@ document.getElementById('loginBtn').addEventListener('click', () => {
     return;
   }
   auth.signInWithEmailAndPassword(email, password).catch(err => {
+    loginError.textContent = traduzErroLogin(err);
+  });
+});
+
+signupBtn.addEventListener('click', () => {
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const confirm = document.getElementById('confirmPassword').value;
+  loginError.textContent = '';
+  if(!email || !password || !confirm){
+    loginError.textContent = 'Preencha todos os campos.';
+    return;
+  }
+  if(password !== confirm){
+    loginError.textContent = 'As senhas não são iguais.';
+    return;
+  }
+  if(password.length < 6){
+    loginError.textContent = 'A senha precisa ter pelo menos 6 caracteres.';
+    return;
+  }
+  auth.createUserWithEmailAndPassword(email, password).catch(err => {
     loginError.textContent = traduzErroLogin(err);
   });
 });
@@ -390,7 +448,9 @@ function traduzErroLogin(err){
   if(code === 'auth/user-not-found' || code === 'auth/invalid-credential') return 'Email ou senha incorretos.';
   if(code === 'auth/wrong-password') return 'Email ou senha incorretos.';
   if(code === 'auth/too-many-requests') return 'Muitas tentativas. Tente de novo em alguns minutos.';
-  return 'Não foi possível entrar. Tente novamente.';
+  if(code === 'auth/email-already-in-use') return 'Esse email já tem conta. Tente entrar em vez de criar.';
+  if(code === 'auth/weak-password') return 'Senha muito fraca. Use pelo menos 6 caracteres.';
+  return 'Não foi possível concluir. Tente novamente.';
 }
 
 auth.onAuthStateChanged(user => {
@@ -407,7 +467,8 @@ auth.onAuthStateChanged(user => {
     loginScreen.classList.remove('hidden');
     document.getElementById('loginEmail').value = '';
     document.getElementById('loginPassword').value = '';
-    loginError.textContent = '';
+    document.getElementById('confirmPassword').value = '';
+    setSignupMode(false);
   }
 });
 
